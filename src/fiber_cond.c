@@ -49,11 +49,11 @@ int fiber_cond_wait(fiber_t fiber, fiber_cond_t *f_cond, fiber_mutex_t *f_mtx) {
 }
 
 int fiber_cond_signal(fiber_cond_t *f_cond) {
-    uint32_t value;
+    uint32_t value, new_value;
     do {
         value = (*f_cond)->value;
-    } while (!__sync_bool_compare_and_swap(&(*f_cond)->value,
-             value, (value & 0xffff) ? (value - 1) : (value & 0xffff0000)));
+        new_value = (value & 0xffff) ? (value - 1) : (value & 0xffff0000);
+    } while (!__sync_bool_compare_and_swap(&(*f_cond)->value, value, new_value));
 
     uint16_t len = value & 0xffff;
     if (len == 0) {

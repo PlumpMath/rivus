@@ -11,6 +11,7 @@ typedef struct FiberMutex *fiber_mutex_t;
 
 int fiber_mutex_init(fiber_mutex_t *f_mtx);
 int fiber_mutex_destroy(fiber_mutex_t *f_mtx);
+
 int fiber_mutex_lock(fiber_t fiber, fiber_mutex_t *f_mtx);
 int fiber_mutex_unlock(fiber_t fiber, fiber_mutex_t *f_mtx);
 

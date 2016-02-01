@@ -57,10 +57,6 @@ struct TcpServer* create_tcp_server(const char* ip, int port, void(*handle)(stru
         return NULL;
     }
 
-    if (listen(server->socket, MAX_CONNECTION) < 0) {
-        return NULL;
-    }
-
     server->handle = handle;
     return server;
 }
@@ -76,6 +72,8 @@ void run_tcp_server(struct Scheduler *sch, struct TcpServer *server) {
     struct sockaddr_in remote;
     socklen_t remote_len;
     int nfds;
+
+    assert(listen(server->socket, MAX_CONNECTION) == 0);
 
     assert((sch->epoll_fd = epoll_create(32)) >= 0);
 

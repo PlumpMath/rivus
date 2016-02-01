@@ -48,6 +48,7 @@ struct FiberQueue {
 };
 
 struct ThreadCarrier {
+    int stop;
     pthread_t tid;
     struct Fiber *running_fiber;
     struct FiberQueue fiber_queue;
@@ -57,6 +58,8 @@ struct ThreadCarrier {
 };
 
 struct Scheduler {
+    int stop;
+    int stop_io;
     int thread_size;
     int index;
     struct ThreadCarrier **threads;
@@ -77,7 +80,7 @@ struct RWLockedFiber {
 };
 
 struct FiberRWLock {
-    uint64_t value;
+    volatile uint64_t value;
     struct Fiber *wr_owner;
     struct RWLockedFiber *wait_queue;
     int status;
@@ -89,7 +92,7 @@ struct FiberSemaphore {
 };
 
 struct FiberCond {
-    uint32_t value;
+    volatile uint32_t value;
     struct Fiber **wait_queue;
 };
 

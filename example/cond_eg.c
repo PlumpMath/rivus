@@ -17,13 +17,13 @@ void write_func(fiber_t fiber, void *data);
 void read_func(fiber_t fiber, void *data);
 
 int main() {
+    fiber_mutex_init(&mtx);
+    fiber_cond_init(&cond);
+
     struct Scheduler *sch = create_scheduler(4);
     if (sch == NULL) return 0;
     start_scheduler(sch);
     start_io_dispatcher(sch);
-
-    fiber_mutex_init(&mtx);
-    fiber_cond_init(&cond);
 
     int i = 0;
     for (; i < 8; ++i) {
@@ -40,6 +40,7 @@ int main() {
 
     stop_scheduler(sch);
     stop_io_dispatcher(sch);
+    free_scheduler(sch);
 
     fiber_cond_destroy(&cond);
     fiber_mutex_destroy(&mtx);
@@ -47,10 +48,10 @@ int main() {
 
 void write_func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 8; ++i) {
+    for (; i < 128; ++i) {
         fiber_mutex_lock(fiber, &mtx);
-        ++g_value;
         printf("writer value is %d\n", g_value);
+        g_value = 64;
         fiber_cond_signal(&cond);
         // fiber_cond_broadcast(&cond);
         fiber_mutex_unlock(fiber, &mtx);
@@ -67,6 +68,7 @@ void read_func(fiber_t fiber, void *data) {
             fiber_cond_wait(fiber, &cond, &mtx);
         }
         printf("reader value is %d\n", g_value);
+        g_value = 0;
         fiber_mutex_unlock(fiber, &mtx);
         yield(fiber);
     }

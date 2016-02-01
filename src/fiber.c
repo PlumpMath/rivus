@@ -44,8 +44,6 @@ struct Scheduler* create_scheduler(int thread_nums) {
     for (; i < tnums; ++i) {
         struct ThreadCarrier *tc = calloc(1, sizeof(struct ThreadCarrier));
         tc->fiber_queue.size = qsize;
-        tc->fiber_queue.head = 0;
-        tc->fiber_queue.tail = 0;
         tc->fiber_queue.queue = calloc(qsize, sizeof(fiber_t));
         sem_init(&tc->fiber_queue.sem_used, 0, 0);
         sem_init(&tc->fiber_queue.sem_free, 0, qsize);
@@ -80,8 +78,16 @@ void start_scheduler(struct Scheduler *sch) {
 }
 
 void stop_scheduler(struct Scheduler *sch) {
+    sch->stop = 1;
+
     int i = 0;
+    for (; i < sch->thread_size; ++i) {
+        sch->threads[i]->stop = 1;
+        sem_post(&sch->threads[i]->fiber_queue.sem_used);
+    }
+
     void *status;
+    i = 0;
     for (; i < sch->thread_size; ++i) {
         pthread_join(sch->threads[i]->tid, &status);
     }
@@ -93,6 +99,7 @@ void start_io_dispatcher(struct Scheduler *sch) {
 }
 
 void stop_io_dispatcher(struct Scheduler *sch) {
+    sch->stop_io = 1;
     void *status;
     pthread_join(sch->dispatcher_tid, &status);
 }
@@ -111,7 +118,7 @@ int create_fiber(fiber_t *fiber, void (*user_func)(fiber_t, void*), void *data) 
 }
 
 int schedule(struct Scheduler *sch, fiber_t fiber) {
-    if (sch == NULL || fiber == NULL) {
+    if (sch == NULL || fiber == NULL || sch->stop) {
         return -1;
     }
 
@@ -195,9 +202,11 @@ void fiber_entry(fiber_t fiber) {
 void* schedule_thread(void *data) {
     struct ThreadCarrier *tc = (struct ThreadCarrier*)data;
     fiber_t fiber;
-    while (1) {
+    int sval;
+    while (!tc->stop || (sem_getvalue(&tc->fiber_queue.sem_used, &sval), sval)) {
         sem_wait(&tc->fiber_queue.sem_used);
-        while (tc->fiber_queue.queue[tc->fiber_queue.tail] == NULL) {
+        while (tc->fiber_queue.queue[tc->fiber_queue.tail] == NULL &&
+               (sem_getvalue(&tc->fiber_queue.sem_free, &sval), sval != tc->fiber_queue.size)) {
             usleep(1);
         }
         while (tc->fiber_queue.queue[tc->fiber_queue.tail]) {
@@ -235,8 +244,8 @@ void* io_dispatch_thread(void *data) {
     assert(sch->epoll_fd >= 0);
 
     events = calloc(MAX_EVENT_SIZE, sizeof(struct epoll_event));
-    while (1) {
-        nfds = epoll_wait(sch->epoll_fd, events, MAX_EVENT_SIZE, -1);
+    while (!sch->stop_io) {
+        nfds = epoll_wait(sch->epoll_fd, events, MAX_EVENT_SIZE, 1000);
 
         int i = 0;
         for (; i < nfds; ++i) {
