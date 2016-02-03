@@ -49,6 +49,7 @@ struct FiberQueue {
 
 struct ThreadCarrier {
     int stop;
+    sem_t done;
     pthread_t tid;
     struct Fiber *running_fiber;
     struct FiberQueue fiber_queue;
@@ -62,9 +63,9 @@ struct Scheduler {
     int stop_io;
     int thread_size;
     int index;
-    struct ThreadCarrier **threads;
     int epoll_fd;
     pthread_t dispatcher_tid;
+    struct ThreadCarrier **threads;
     struct Fiber **blocked_io_set;
 };
 

@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -83,12 +84,20 @@ void stop_scheduler(struct Scheduler *sch) {
     int i = 0;
     for (; i < sch->thread_size; ++i) {
         sch->threads[i]->stop = 1;
-        sem_post(&sch->threads[i]->fiber_queue.sem_used);
+    }
+
+    for (i = 0; i < sch->thread_size; ++i) {
+        int sval;
+        struct ThreadCarrier *tc = sch->threads[i];
+        sem_getvalue(&tc->fiber_queue.sem_free, &sval);
+        if (sval != tc->fiber_queue.size) {
+            sem_wait(&tc->done);
+        }
     }
 
     void *status;
-    i = 0;
-    for (; i < sch->thread_size; ++i) {
+    for (i = 0; i < sch->thread_size; ++i) {
+        pthread_kill(sch->threads[i]->tid, SIGKILL);
         pthread_join(sch->threads[i]->tid, &status);
     }
 }
@@ -100,6 +109,7 @@ void start_io_dispatcher(struct Scheduler *sch) {
 
 void stop_io_dispatcher(struct Scheduler *sch) {
     sch->stop_io = 1;
+    pthread_kill(sch->dispatcher_tid, SIGCONT);
     void *status;
     pthread_join(sch->dispatcher_tid, &status);
 }
@@ -196,6 +206,14 @@ void fiber_entry(fiber_t fiber) {
     fiber->user_func(fiber, fiber->user_data);
     fiber->status = DEAD;
     detach_fiber(fiber);
+    if (fiber->tc->stop) {
+        int sval;
+        struct ThreadCarrier *tc = fiber->tc;
+        sem_getvalue(&tc->fiber_queue.sem_free, &sval);
+        if (sval == tc->fiber_queue.size) {
+            sem_post(&tc->done);
+        }
+    }
     swapcontext(&fiber->ctx, &fiber->tc->ctx);
 }
 
@@ -203,10 +221,9 @@ void* schedule_thread(void *data) {
     struct ThreadCarrier *tc = (struct ThreadCarrier*)data;
     fiber_t fiber;
     int sval;
-    while (!tc->stop || (sem_getvalue(&tc->fiber_queue.sem_used, &sval), sval)) {
+    while(1) {
         sem_wait(&tc->fiber_queue.sem_used);
-        while (tc->fiber_queue.queue[tc->fiber_queue.tail] == NULL &&
-               (sem_getvalue(&tc->fiber_queue.sem_free, &sval), sval != tc->fiber_queue.size)) {
+        while (tc->fiber_queue.queue[tc->fiber_queue.tail] == NULL) {
             usleep(1);
         }
         while (tc->fiber_queue.queue[tc->fiber_queue.tail]) {
@@ -245,7 +262,7 @@ void* io_dispatch_thread(void *data) {
 
     events = calloc(MAX_EVENT_SIZE, sizeof(struct epoll_event));
     while (!sch->stop_io) {
-        nfds = epoll_wait(sch->epoll_fd, events, MAX_EVENT_SIZE, 1000);
+        nfds = epoll_wait(sch->epoll_fd, events, MAX_EVENT_SIZE, -1);
 
         int i = 0;
         for (; i < nfds; ++i) {

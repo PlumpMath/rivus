@@ -6,9 +6,9 @@
 
 #include "fiber.h"
 
-#define SEM_VALUE_MAX     1024*4
-#define SEM_VALUE_MASK      0x1fff
-#define SEM_WAIT_QUEUE_SIZE     SEM_VALUE_MAX
+#define SEM_VALUE_MAX     1024*4*14
+#define SEM_VALUE_MASK      0xffff
+#define SEM_WAIT_QUEUE_SIZE     1024*4
 #define SEM_WAIT_QUEUE_LEN_MASK     0xfff
 
 int fiber_sem_init(fiber_sem_t *f_sem, int value) {
@@ -18,14 +18,14 @@ int fiber_sem_init(fiber_sem_t *f_sem, int value) {
     }
 
     (*f_sem) = malloc(sizeof(struct FiberSemaphore));
-    uint16_t tval = 0x1000 - value;
+    uint16_t tval = 0xe000 - value;
     (*f_sem)->value = (tval << 16) + tval;
     (*f_sem)->wait_queue = calloc(SEM_WAIT_QUEUE_SIZE, sizeof(struct Fiber*));
     return 0;
 }
 
 int fiber_sem_destroy(fiber_sem_t *f_sem) {
-    if (!(*f_sem) || ((*f_sem)->value & SEM_VALUE_MASK) != 0x1000) {
+    if (!(*f_sem) || ((*f_sem)->value & SEM_VALUE_MASK) != 0x8000) {
         return -1;
     }
 
@@ -38,9 +38,9 @@ int fiber_sem_wait(fiber_t fiber, fiber_sem_t *f_sem) {
     uint32_t value = __sync_fetch_and_add(&(*f_sem)->value, 0x10001);
     uint16_t val = value & SEM_VALUE_MASK;
 
-    assert(val != 0x1fff);
+    assert(val < 0xefff);
 
-    if (val < 0x1000) {
+    if (val < 0xe000) {
         return 0;
     }
 
@@ -57,9 +57,10 @@ int fiber_sem_wait(fiber_t fiber, fiber_sem_t *f_sem) {
 int fiber_sem_post(fiber_sem_t *f_sem) {
     uint32_t value = __sync_sub_and_fetch(&(*f_sem)->value, 0x1);
     uint16_t val = value & SEM_VALUE_MASK;
-    assert(val != 0x0);
 
-    if (val < 0x1000) {
+    assert(val < 0xefff);
+
+    if (val < 0xe000) {
         return 0;
     }
 
@@ -83,7 +84,8 @@ int fiber_sem_getvalue(fiber_sem_t *f_sem, int *sval) {
         return -1;
     }
 
-    *sval = ((*f_sem)->value & 0x1000) ? -((*f_sem)->value & SEM_WAIT_QUEUE_LEN_MASK)
-        : (0x1000 - ((*f_sem)->value & SEM_VALUE_MASK));
+    uint32_t value = (*f_sem)->value;
+    *sval = (value & SEM_VALUE_MASK) > 0xe000 ?
+        -(value & SEM_WAIT_QUEUE_LEN_MASK) : (0xe000 - (value & SEM_VALUE_MASK));
     return 0;
 }
