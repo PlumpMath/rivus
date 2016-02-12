@@ -28,6 +28,12 @@ enum RWLOCK_STATUS {
     WR_LOCK = 2,
 };
 
+enum RWLOCK_WAIT_STATUS {
+    NO_WAIT = 0,
+    RD_WAIT = 1,
+    WR_WAIT = 2,
+};
+
 struct Fiber {
     void (*entry)(struct Fiber*);
     void (*user_func)(struct Fiber*, void*);
@@ -70,7 +76,7 @@ struct Scheduler {
 };
 
 struct FiberMutex {
-    volatile uint32_t value;
+    volatile uint64_t value;
     struct Fiber *owner;
     struct Fiber **wait_queue;
 };
@@ -88,12 +94,12 @@ struct FiberRWLock {
 };
 
 struct FiberSemaphore {
-    volatile uint32_t value;
+    volatile uint64_t value;
     struct Fiber **wait_queue;
 };
 
 struct FiberCond {
-    volatile uint32_t value;
+    volatile uint64_t value;
     struct Fiber **wait_queue;
 };
 

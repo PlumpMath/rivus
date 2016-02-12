@@ -7,8 +7,9 @@
 
 #include "fiber.h"
 
-#define MUTEX_WAIT_QUEUE_SIZE   4096
-#define MUTEX_WAIT_QUEUE_LEN_MASK    0xfff
+#define MUTEX_WAIT_QUEUE_SIZE   1024*64
+#define MUTEX_WAIT_QUEUE_INDEX_MASK     0xffff
+#define MUTEX_WAIT_QUEUE_LEN_MASK       0xffffffff
 
 int fiber_mutex_init(fiber_mutex_t *f_mtx) {
     if (f_mtx == NULL) {
@@ -36,10 +37,10 @@ int fiber_mutex_lock(fiber_t fiber, fiber_mutex_t *f_mtx) {
     /* nested lock */
     assert(fiber != (*f_mtx)->owner);
 
-    uint32_t value = __sync_fetch_and_add(&(*f_mtx)->value, 0x10001);
-    uint16_t len = value & MUTEX_WAIT_QUEUE_LEN_MASK;
+    uint64_t value = __sync_fetch_and_add(&(*f_mtx)->value, 0x100000001);
+    uint32_t len = value & MUTEX_WAIT_QUEUE_LEN_MASK;
 
-    assert(len != (MUTEX_WAIT_QUEUE_SIZE - 1));
+    assert(len < MUTEX_WAIT_QUEUE_SIZE);
 
     if (len == 0) {
         (*f_mtx)->owner = fiber;
@@ -47,7 +48,7 @@ int fiber_mutex_lock(fiber_t fiber, fiber_mutex_t *f_mtx) {
     }
 
     fiber->status = SUSPEND;
-    uint16_t index = (value >> 16) & MUTEX_WAIT_QUEUE_LEN_MASK;
+    uint32_t index = (value >> 32) & MUTEX_WAIT_QUEUE_INDEX_MASK;
     (*f_mtx)->wait_queue[index] = fiber;
 
     fiber->tc->fiber_queue.queue[fiber->tc->fiber_queue.tail] = NULL;
@@ -59,13 +60,13 @@ int fiber_mutex_unlock(fiber_t fiber, fiber_mutex_t *f_mtx) {
     assert(fiber == (*f_mtx)->owner);
 
     (*f_mtx)->owner = NULL;
-    uint32_t value = __sync_sub_and_fetch(&(*f_mtx)->value, 0x1);
-    uint16_t len = value & MUTEX_WAIT_QUEUE_LEN_MASK;
+    uint64_t value = __sync_sub_and_fetch(&(*f_mtx)->value, 0x1);
+    uint32_t len = value & MUTEX_WAIT_QUEUE_LEN_MASK;
     if (len == 0) {
         return 0;
     }
 
-    uint16_t index = ((value >> 16) - len) & MUTEX_WAIT_QUEUE_LEN_MASK;
+    uint32_t index = ((value >> 32) - len) & MUTEX_WAIT_QUEUE_INDEX_MASK;
     while ((*f_mtx)->wait_queue[index] == NULL) {
         usleep(1);
     }

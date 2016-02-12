@@ -9,7 +9,7 @@
 void func(fiber_t fiber, void *data);
 
 fiber_mutex_t mtx;
-int g_val_array[16] = {0};
+int g_val_array[8] = {0};
 
 int main() {
     fiber_mutex_init(&mtx);
@@ -20,7 +20,7 @@ int main() {
     start_io_dispatcher(sch);
 
     int i = 0;
-    for (; i < 1024 * 2; ++i) {
+    for (; i < 1024 * 64; ++i) {
         fiber_t fiber;
         create_fiber(&fiber, func, NULL);
         schedule(sch, fiber);
@@ -35,10 +35,10 @@ int main() {
 
 void func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 256; ++i) {
+    for (; i < 1024; ++i) {
         fiber_mutex_lock(fiber, &mtx);
         int j = 0;
-        for (; j < 16; ++j) {
+        for (; j < 8; ++j) {
             printf("%d ", ++g_val_array[j]);
         }
         printf("\n");

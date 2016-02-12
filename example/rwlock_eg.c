@@ -23,14 +23,11 @@ int main() {
     start_io_dispatcher(sch);
 
     int i = 0;
-    for (; i < 8; ++i) {
+    for (; i < 1024 * 32; ++i) {
         fiber_t fiber;
         create_fiber(&fiber, write_func, NULL);
         schedule(sch, fiber);
-    }
 
-    for (i = 0; i < 8; ++i) {
-        fiber_t fiber;
         create_fiber(&fiber, read_func, NULL);
         schedule(sch, fiber);
     }
@@ -44,18 +41,17 @@ int main() {
 
 void write_func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 256; ++i) {
+    for (; i < 256 * 16; ++i) {
         fiber_rwlock_wrlock(fiber, &lock);
         printf("writer: value is %d\n", __sync_add_and_fetch(&g_value, 1));
         fiber_rwlock_unlock(fiber, &lock);
-        usleep(1);
     }
     printf("========================================= writer done!\n");
 }
 
 void read_func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 256; ++i) {
+    for (; i < 256 * 16; ++i) {
         fiber_rwlock_rdlock(fiber, &lock);
         printf("reader: value is %d\n", g_value);
         fiber_rwlock_unlock(fiber, &lock);

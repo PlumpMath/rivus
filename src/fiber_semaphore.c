@@ -6,10 +6,10 @@
 
 #include "fiber.h"
 
-#define SEM_VALUE_MAX     1024*4*14
-#define SEM_VALUE_MASK      0xffff
-#define SEM_WAIT_QUEUE_SIZE     1024*4
-#define SEM_WAIT_QUEUE_LEN_MASK     0xfff
+#define SEM_VALUE_MAX       0xffe0000
+#define SEM_VALUE_MASK      0xffffffff
+#define SEM_WAIT_QUEUE_SIZE     1024*64
+#define SEM_WAIT_QUEUE_INDEX_MASK     0xffff
 
 int fiber_sem_init(fiber_sem_t *f_sem, int value) {
     if (f_sem == NULL ||
@@ -18,14 +18,14 @@ int fiber_sem_init(fiber_sem_t *f_sem, int value) {
     }
 
     (*f_sem) = malloc(sizeof(struct FiberSemaphore));
-    uint16_t tval = 0xe000 - value;
-    (*f_sem)->value = (tval << 16) + tval;
+    uint32_t tval = SEM_VALUE_MAX - value;
+    (*f_sem)->value = (tval << 32) + tval;
     (*f_sem)->wait_queue = calloc(SEM_WAIT_QUEUE_SIZE, sizeof(struct Fiber*));
     return 0;
 }
 
 int fiber_sem_destroy(fiber_sem_t *f_sem) {
-    if (!(*f_sem) || ((*f_sem)->value & SEM_VALUE_MASK) != 0x8000) {
+    if (!(*f_sem) || ((*f_sem)->value & SEM_VALUE_MASK) != SEM_VALUE_MAX) {
         return -1;
     }
 
@@ -35,17 +35,17 @@ int fiber_sem_destroy(fiber_sem_t *f_sem) {
 }
 
 int fiber_sem_wait(fiber_t fiber, fiber_sem_t *f_sem) {
-    uint32_t value = __sync_fetch_and_add(&(*f_sem)->value, 0x10001);
-    uint16_t val = value & SEM_VALUE_MASK;
+    uint64_t value = __sync_fetch_and_add(&(*f_sem)->value, 0x100000001);
+    uint32_t val = value & SEM_VALUE_MASK;
 
-    assert(val < 0xefff);
+    assert(val < SEM_VALUE_MAX + 0x10000);
 
-    if (val < 0xe000) {
+    if (val < SEM_VALUE_MAX) {
         return 0;
     }
 
     fiber->status = SUSPEND;
-    uint16_t index = (value >> 16) & SEM_WAIT_QUEUE_LEN_MASK;
+    uint32_t index = (value >> 32) & SEM_WAIT_QUEUE_INDEX_MASK;
 
     (*f_sem)->wait_queue[index] = fiber;
 
@@ -55,16 +55,16 @@ int fiber_sem_wait(fiber_t fiber, fiber_sem_t *f_sem) {
 }
 
 int fiber_sem_post(fiber_sem_t *f_sem) {
-    uint32_t value = __sync_sub_and_fetch(&(*f_sem)->value, 0x1);
-    uint16_t val = value & SEM_VALUE_MASK;
+    uint64_t value = __sync_sub_and_fetch(&(*f_sem)->value, 0x1);
+    uint32_t val = value & SEM_VALUE_MASK;
 
-    assert(val < 0xefff);
+    assert(val < SEM_VALUE_MAX + 0x10000);
 
-    if (val < 0xe000) {
+    if (val < SEM_VALUE_MAX) {
         return 0;
     }
 
-    uint16_t index = ((value >> 16) - val - 1) & SEM_WAIT_QUEUE_LEN_MASK;
+    uint32_t index = ((value >> 32) - val - 1) & SEM_WAIT_QUEUE_INDEX_MASK;
     while ((*f_sem)->wait_queue[index] == NULL) {
         usleep(1);
     }
@@ -85,7 +85,7 @@ int fiber_sem_getvalue(fiber_sem_t *f_sem, int *sval) {
     }
 
     uint32_t value = (*f_sem)->value;
-    *sval = (value & SEM_VALUE_MASK) > 0xe000 ?
-        -(value & SEM_WAIT_QUEUE_LEN_MASK) : (0xe000 - (value & SEM_VALUE_MASK));
+    *sval = (value & SEM_VALUE_MASK) > SEM_VALUE_MAX ?
+        -(value & SEM_WAIT_QUEUE_INDEX_MASK) : (SEM_VALUE_MAX - (value & SEM_VALUE_MASK));
     return 0;
 }
