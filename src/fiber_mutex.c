@@ -7,9 +7,11 @@
 
 #include "fiber.h"
 
+
 #define MUTEX_WAIT_QUEUE_SIZE   1024*64
 #define MUTEX_WAIT_QUEUE_INDEX_MASK     0xffff
 #define MUTEX_WAIT_QUEUE_LEN_MASK       0xffffffff
+
 
 int fiber_mutex_init(fiber_mutex_t *f_mtx) {
     if (f_mtx == NULL) {
@@ -43,15 +45,17 @@ int fiber_mutex_lock(fiber_t fiber, fiber_mutex_t *f_mtx) {
     assert(len < MUTEX_WAIT_QUEUE_SIZE);
 
     if (len == 0) {
+        /* no fiber is holding the lock, got the lock */
         (*f_mtx)->owner = fiber;
         return 0;
     }
 
+    /* suspend the fiber, and put it on the wait queue */
     fiber->status = SUSPEND;
     uint32_t index = (value >> 32) & MUTEX_WAIT_QUEUE_INDEX_MASK;
     (*f_mtx)->wait_queue[index] = fiber;
 
-    fiber->tc->fiber_queue.queue[fiber->tc->fiber_queue.tail] = NULL;
+    fiber->tc->running_queue.queue[fiber->tc->running_queue.tail] = NULL;
     swapcontext(&fiber->ctx, &fiber->tc->ctx);
     return 0;
 }
@@ -63,21 +67,26 @@ int fiber_mutex_unlock(fiber_t fiber, fiber_mutex_t *f_mtx) {
     uint64_t value = __sync_sub_and_fetch(&(*f_mtx)->value, 0x1);
     uint32_t len = value & MUTEX_WAIT_QUEUE_LEN_MASK;
     if (len == 0) {
+        /* no fiber is on the wait queue, return immediately */
         return 0;
     }
 
+    /* get the wait queue tail index, the fiber must be woke up was put on there */
     uint32_t index = ((value >> 32) - len) & MUTEX_WAIT_QUEUE_INDEX_MASK;
     while ((*f_mtx)->wait_queue[index] == NULL) {
         usleep(1);
     }
+
+    /* remove the fiber from the wait queue */
     fiber_t waked_fiber = (*f_mtx)->wait_queue[index];
     (*f_mtx)->wait_queue[index] = NULL;
     waked_fiber->status = RUNABLE;
     (*f_mtx)->owner = waked_fiber;
 
+    /* add the fiber to the scheduler running queue */
     struct ThreadCarrier *tc = waked_fiber->tc;
-    uint16_t pos = __sync_fetch_and_add(&tc->fiber_queue.head, 1) & (tc->fiber_queue.size - 1);
-    tc->fiber_queue.queue[pos] = waked_fiber;
-    sem_post(&tc->fiber_queue.sem_used);
+    uint16_t pos = __sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1);
+    tc->running_queue.queue[pos] = waked_fiber;
+    sem_post(&tc->running_queue.sem_used);
     return 0;
 }

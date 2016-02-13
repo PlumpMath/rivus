@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/epoll.h>
-#include <sys/stat.h>
 
 #include "fiber.h"
 
@@ -11,12 +10,11 @@
 extern int suspend_fiber(fiber_t fiber, int fd);
 
 
-int rivus_open(const char *path, int flag) {
-    return open(path, flag|O_NONBLOCK);
-}
-
-int rives_close(int fd) {
-    return close(fd);
+int set_as_nonblocking(int fd) {
+    if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0)|O_NONBLOCK) < 0) {
+        return -1;
+    }
+    return 0;
 }
 
 ssize_t rivus_write(fiber_t fiber, int fd, const char *buf, size_t nbyte) {

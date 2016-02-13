@@ -7,8 +7,7 @@
 extern "C" {
 #endif
 
-struct TcpServer* create_tcp_server(const char* ip, int port,
-                                    void(*handle)(struct Fiber*, void*));
+struct TcpServer* create_tcp_server(const char* ip, int port, void(*handle)(fiber_t, void*));
 void free_tcp_server(struct TcpServer *server);
 
 void run_tcp_server(struct Scheduler *sch, struct TcpServer *server);

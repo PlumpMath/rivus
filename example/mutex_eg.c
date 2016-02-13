@@ -20,7 +20,7 @@ int main() {
     start_io_dispatcher(sch);
 
     int i = 0;
-    for (; i < 1024 * 64; ++i) {
+    for (; i < 1024; ++i) {
         fiber_t fiber;
         create_fiber(&fiber, func, NULL);
         schedule(sch, fiber);
@@ -35,7 +35,7 @@ int main() {
 
 void func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 1024; ++i) {
+    for (; i < 64; ++i) {
         fiber_mutex_lock(fiber, &mtx);
         int j = 0;
         for (; j < 8; ++j) {

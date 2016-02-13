@@ -7,9 +7,11 @@
 
 #include "fiber.h"
 
+
 #define COND_WAIT_QUEUE_SIZE        1024*64
 #define COND_WAIT_QUEUE_INDEX_MASK  0xffff
 #define COND_WAIT_QUEUE_LEN_MASK    0xfffff
+
 
 int fiber_cond_init(fiber_cond_t *f_cond) {
     if (f_cond == NULL) {
@@ -36,24 +38,27 @@ int fiber_cond_wait(fiber_t fiber, fiber_cond_t *f_cond, fiber_mutex_t *f_mtx) {
     uint64_t value = __sync_fetch_and_add(&(*f_cond)->value, 0x100000001);
     uint32_t len = value & COND_WAIT_QUEUE_LEN_MASK;
 
-    assert(value < COND_WAIT_QUEUE_SIZE);
+    assert(len < COND_WAIT_QUEUE_SIZE);
 
+    /* suspend the fiber, and put it on the wait queue */
     fiber->status = SUSPEND;
     uint32_t index = (value >> 32) & COND_WAIT_QUEUE_INDEX_MASK;
     (*f_cond)->wait_queue[index] = fiber;
 
-    fiber->tc->fiber_queue.queue[fiber->tc->fiber_queue.tail] = NULL;
+    fiber->tc->running_queue.queue[fiber->tc->running_queue.tail] = NULL;
 
+    /* release the mutex */
     fiber_mutex_unlock(fiber, f_mtx);
 
     swapcontext(&fiber->ctx, &fiber->tc->ctx);
 
+    /* after fiber be woke up, get the mutex first */
     fiber_mutex_lock(fiber, f_mtx);
     return 0;
 }
 
 int fiber_cond_signal(fiber_cond_t *f_cond) {
-    uint32_t value, new_value;
+    uint64_t value, new_value;
     do {
         value = (*f_cond)->value;
         new_value = (value & 0xffffffff) ? (value - 1) : (value & 0xffffffff00000000);
@@ -61,21 +66,26 @@ int fiber_cond_signal(fiber_cond_t *f_cond) {
 
     uint32_t len = value & COND_WAIT_QUEUE_LEN_MASK;
     if (len == 0) {
+        /* no fiber is on the wait queue, return immediately */
         return 0;
     }
 
+    /* get the wait queue tail index, the fiber must be woke up was put on there */
     uint32_t index = ((value >> 32) - len) & COND_WAIT_QUEUE_INDEX_MASK;
     while ((*f_cond)->wait_queue[index] == NULL) {
         usleep(1);
     }
+
+    /* remove the fiber from the wait queue */
     fiber_t waked_fiber = (*f_cond)->wait_queue[index];
     (*f_cond)->wait_queue[index] = NULL;
     waked_fiber->status = RUNABLE;
 
+    /* add the fiber to the scheduler running queue */
     struct ThreadCarrier *tc = waked_fiber->tc;
-    uint16_t pos = __sync_fetch_and_add(&tc->fiber_queue.head, 1) & (tc->fiber_queue.size - 1);
-    tc->fiber_queue.queue[pos] = waked_fiber;
-    sem_post(&tc->fiber_queue.sem_used);
+    uint16_t pos = __sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1);
+    tc->running_queue.queue[pos] = waked_fiber;
+    sem_post(&tc->running_queue.sem_used);
     return 0;
 }
 
@@ -83,6 +93,7 @@ int fiber_cond_broadcast(fiber_cond_t *f_cond) {
     uint64_t value = __sync_fetch_and_and(&(*f_cond)->value, 0xffffffff00000000);
     uint32_t len = value & COND_WAIT_QUEUE_LEN_MASK;
 
+    /* wake all fibers on the wait queue up */
     uint32_t first_index = ((value >> 32) - len) & COND_WAIT_QUEUE_INDEX_MASK;
     size_t i = 0;
     for (; i < len; ++i) {
@@ -90,14 +101,17 @@ int fiber_cond_broadcast(fiber_cond_t *f_cond) {
         while ((*f_cond)->wait_queue[index] == NULL) {
             usleep(1);
         }
+
+        /* remove the fiber from the wait queue */
         fiber_t waked_fiber = (*f_cond)->wait_queue[index];
         (*f_cond)->wait_queue[index] = NULL;
         waked_fiber->status = RUNABLE;
 
+        /* add the fiber to the scheduler running queue */
         struct ThreadCarrier *tc = waked_fiber->tc;
-        uint16_t pos = __sync_fetch_and_add(&tc->fiber_queue.head, 1) & (tc->fiber_queue.size - 1);
-        tc->fiber_queue.queue[pos] = waked_fiber;
-        sem_post(&tc->fiber_queue.sem_used);
+        uint16_t pos = __sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1);
+        tc->running_queue.queue[pos] = waked_fiber;
+        sem_post(&tc->running_queue.sem_used);
     }
     return 0;
 }

@@ -5,12 +5,10 @@
 #include <stdint.h>
 #include <ucontext.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define FIBER_STACK_SIZE    4096*32
 #define MAX_EVENT_SIZE  1024*64
+
 
 typedef struct Fiber *fiber_t;
 
@@ -58,15 +56,13 @@ struct ThreadCarrier {
     sem_t done;
     pthread_t tid;
     struct Fiber *running_fiber;
-    struct FiberQueue fiber_queue;
+    struct FiberQueue running_queue;
     struct Scheduler *sch;
     ucontext_t ctx;
-    pthread_mutex_t mtx;
 };
 
 struct Scheduler {
     int stop;
-    int stop_io;
     int thread_size;
     int index;
     int epoll_fd;
@@ -91,6 +87,8 @@ struct FiberRWLock {
     struct Fiber *wr_owner;
     struct RWLockedFiber *wait_queue;
     int status;
+    int first_wr_index;
+    int rd_count;
 };
 
 struct FiberSemaphore {
@@ -108,7 +106,4 @@ struct TcpServer {
     void(*handle)(struct Fiber*, void*);
 };
 
-#ifdef __cplusplus
-}
-#endif
 #endif

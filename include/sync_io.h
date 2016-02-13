@@ -10,14 +10,7 @@
 extern "C" {
 #endif
 
-#define RIVUS_RDONLY    O_RDONLY
-#define RIVUS_WRONLY    O_WRONLY
-#define RIVUS_RDWR      O_RDWR
-#define RIVUS_APPEND    O_APPEND
-#define RIVUS_CREAT     O_CREAT
-
-int rivus_open(const char *path, int flag);
-int rives_close(int fd);
+int set_as_nonblocking(int fd);
 
 ssize_t rivus_write(fiber_t fiber, int fd, const char *buf, size_t nbyte);
 ssize_t rivus_read(fiber_t fiber, int fd, char *buf, size_t nbyte);

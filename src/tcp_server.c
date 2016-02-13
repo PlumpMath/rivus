@@ -14,13 +14,14 @@
 
 #include "fiber.h"
 
+
 #define MAX_CONNECTION  1024*64
 
 
 extern int wake_fiber(struct Scheduler *sch, int fd);
 
 
-struct TcpServer* create_tcp_server(const char* ip, int port, void(*handle)(struct Fiber*, void*)) {
+struct TcpServer* create_tcp_server(const char* ip, int port, void(*handle)(fiber_t, void*)) {
     struct sockaddr_in server_address;
     in_addr_t server_ip;
     int optval = 0;
@@ -116,6 +117,7 @@ void run_tcp_server(struct Scheduler *sch, struct TcpServer *server) {
             }
         }
     }
+
     free(events);
     close(sch->epoll_fd);
 }

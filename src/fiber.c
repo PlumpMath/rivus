@@ -12,6 +12,7 @@
 #include <sys/epoll.h>
 #include <ucontext.h>
 
+
 #define RIVUS_NR_OPEN   1024*64
 
 
@@ -44,10 +45,10 @@ struct Scheduler* create_scheduler(int thread_nums) {
     int i = 0;
     for (; i < tnums; ++i) {
         struct ThreadCarrier *tc = calloc(1, sizeof(struct ThreadCarrier));
-        tc->fiber_queue.size = qsize;
-        tc->fiber_queue.queue = calloc(qsize, sizeof(fiber_t));
-        sem_init(&tc->fiber_queue.sem_used, 0, 0);
-        sem_init(&tc->fiber_queue.sem_free, 0, qsize);
+        tc->running_queue.size = qsize;
+        tc->running_queue.queue = calloc(qsize, sizeof(fiber_t));
+        sem_init(&tc->running_queue.sem_used, 0, 0);
+        sem_init(&tc->running_queue.sem_free, 0, qsize);
         sch->threads[i] = tc;
         tc->sch = sch;
     }
@@ -59,9 +60,9 @@ void free_scheduler(struct Scheduler *sch) {
     int i = 0;
     for (; i < sch->thread_size; ++i) {
         struct ThreadCarrier *tc = sch->threads[i];
-        sem_destroy(&tc->fiber_queue.sem_free);
-        sem_destroy(&tc->fiber_queue.sem_used);
-        free(tc->fiber_queue.queue);
+        sem_destroy(&tc->running_queue.sem_free);
+        sem_destroy(&tc->running_queue.sem_used);
+        free(tc->running_queue.queue);
         free(tc);
     }
 
@@ -89,15 +90,15 @@ void stop_scheduler(struct Scheduler *sch) {
     for (i = 0; i < sch->thread_size; ++i) {
         int sval;
         struct ThreadCarrier *tc = sch->threads[i];
-        sem_getvalue(&tc->fiber_queue.sem_free, &sval);
-        if (sval != tc->fiber_queue.size) {
+        sem_getvalue(&tc->running_queue.sem_free, &sval);
+        if (sval != tc->running_queue.size) {
             sem_wait(&tc->done);
         }
     }
 
     void *status;
     for (i = 0; i < sch->thread_size; ++i) {
-        pthread_kill(sch->threads[i]->tid, SIGKILL);
+        pthread_cancel(sch->threads[i]->tid);
         pthread_join(sch->threads[i]->tid, &status);
     }
 }
@@ -108,8 +109,7 @@ void start_io_dispatcher(struct Scheduler *sch) {
 }
 
 void stop_io_dispatcher(struct Scheduler *sch) {
-    sch->stop_io = 1;
-    pthread_kill(sch->dispatcher_tid, SIGCONT);
+    pthread_cancel(sch->dispatcher_tid);
     void *status;
     pthread_join(sch->dispatcher_tid, &status);
 }
@@ -133,18 +133,17 @@ int schedule(struct Scheduler *sch, fiber_t fiber) {
     }
 
     struct ThreadCarrier *tc = sch->threads[sch->index];
-    while (sem_trywait(&tc->fiber_queue.sem_free) != 0) {
+    while (sem_trywait(&tc->running_queue.sem_free) != 0) {
         sch->index = (++sch->index) & (sch->thread_size - 1);
         tc = sch->threads[sch->index];
     }
 
     fiber->tc = tc;
-    int index = (int)(__sync_fetch_and_add(&tc->fiber_queue.head, 1) & (tc->fiber_queue.size - 1));
-    tc->fiber_queue.queue[index] = fiber;
+    int index = (int)(__sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1));
+    tc->running_queue.queue[index] = fiber;
 
-    sem_post(&tc->fiber_queue.sem_used);
+    sem_post(&tc->running_queue.sem_used);
     sch->index = (++sch->index) & (sch->thread_size - 1);
-
     return 0;
 }
 
@@ -152,12 +151,13 @@ int yield(fiber_t fiber) {
     if (fiber == NULL) {
         return -1;
     }
+
     fiber->status = RUNABLE;
     struct ThreadCarrier *tc = fiber->tc;
-    tc->fiber_queue.queue[tc->fiber_queue.tail] = NULL;
-    int index = (int)(__sync_fetch_and_add(&tc->fiber_queue.head, 1) & (tc->fiber_queue.size - 1));
-    tc->fiber_queue.queue[index] = fiber;
-    sem_post(&tc->fiber_queue.sem_used);
+    tc->running_queue.queue[tc->running_queue.tail] = NULL;
+    int index = (int)(__sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1));
+    tc->running_queue.queue[index] = fiber;
+    sem_post(&tc->running_queue.sem_used);
     swapcontext(&fiber->ctx, &tc->ctx);
     return 0;
 }
@@ -168,8 +168,8 @@ int detach_fiber(fiber_t fiber) {
     }
 
     struct ThreadCarrier *tc = fiber->tc;
-    tc->fiber_queue.queue[tc->fiber_queue.tail] = NULL;
-    sem_post(&tc->fiber_queue.sem_free);
+    tc->running_queue.queue[tc->running_queue.tail] = NULL;
+    sem_post(&tc->running_queue.sem_free);
     return 0;
 }
 
@@ -181,7 +181,7 @@ int suspend_fiber(fiber_t fiber, int fd) {
     fiber->status = SUSPEND;
     struct ThreadCarrier *tc = fiber->tc;
     tc->sch->blocked_io_set[fd] = fiber;
-    tc->fiber_queue.queue[tc->fiber_queue.tail] = NULL;
+    tc->running_queue.queue[tc->running_queue.tail] = NULL;
     return 0;
 }
 
@@ -196,9 +196,9 @@ int wake_fiber(struct Scheduler* sch, int fd) {
 
     fiber->status = RUNABLE;
     struct ThreadCarrier *tc = fiber->tc;
-    int index = (int)(__sync_fetch_and_add(&tc->fiber_queue.head, 1) & (tc->fiber_queue.size - 1));
-    tc->fiber_queue.queue[index] = fiber;
-    sem_post(&tc->fiber_queue.sem_used);
+    int index = (int)(__sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1));
+    tc->running_queue.queue[index] = fiber;
+    sem_post(&tc->running_queue.sem_used);
     return 0;
 }
 
@@ -209,8 +209,8 @@ void fiber_entry(fiber_t fiber) {
     if (fiber->tc->stop) {
         int sval;
         struct ThreadCarrier *tc = fiber->tc;
-        sem_getvalue(&tc->fiber_queue.sem_free, &sval);
-        if (sval == tc->fiber_queue.size) {
+        sem_getvalue(&tc->running_queue.sem_free, &sval);
+        if (sval == tc->running_queue.size) {
             sem_post(&tc->done);
         }
     }
@@ -220,14 +220,15 @@ void fiber_entry(fiber_t fiber) {
 void* schedule_thread(void *data) {
     struct ThreadCarrier *tc = (struct ThreadCarrier*)data;
     fiber_t fiber;
-    int sval;
+
     while(1) {
-        sem_wait(&tc->fiber_queue.sem_used);
-        while (tc->fiber_queue.queue[tc->fiber_queue.tail] == NULL) {
+        sem_wait(&tc->running_queue.sem_used);
+
+        while (tc->running_queue.queue[tc->running_queue.tail] == NULL) {
             usleep(1);
         }
-        while (tc->fiber_queue.queue[tc->fiber_queue.tail]) {
-            fiber = tc->fiber_queue.queue[tc->fiber_queue.tail];
+        while (tc->running_queue.queue[tc->running_queue.tail]) {
+            fiber = tc->running_queue.queue[tc->running_queue.tail];
             switch (fiber->status) {
                 case READY:
                     getcontext(&fiber->ctx);
@@ -235,11 +236,13 @@ void* schedule_thread(void *data) {
                     fiber->ctx.uc_stack.ss_size = FIBER_STACK_SIZE;
                     makecontext(&fiber->ctx,
                                 (void(*)(void))fiber->entry, 1, fiber);
+
                 case RUNABLE:
                     fiber->status = RUNNING;
                     tc->running_fiber = fiber;
                     swapcontext(&tc->ctx, &fiber->ctx);
                     break;
+
                 default:
                     break;
             }
@@ -247,7 +250,7 @@ void* schedule_thread(void *data) {
                 free(fiber);
             }
         }
-        tc->fiber_queue.tail = (++tc->fiber_queue.tail) & (tc->fiber_queue.size - 1);
+        tc->running_queue.tail = (++tc->running_queue.tail) & (tc->running_queue.size - 1);
     }
 }
 
@@ -261,7 +264,7 @@ void* io_dispatch_thread(void *data) {
     assert(sch->epoll_fd >= 0);
 
     events = calloc(MAX_EVENT_SIZE, sizeof(struct epoll_event));
-    while (!sch->stop_io) {
+    while (1) {
         nfds = epoll_wait(sch->epoll_fd, events, MAX_EVENT_SIZE, -1);
 
         int i = 0;
@@ -270,6 +273,7 @@ void* io_dispatch_thread(void *data) {
             wake_fiber(sch, events[i].data.fd);
         }
     }
+
     free(events);
     close(sch->epoll_fd);
 }

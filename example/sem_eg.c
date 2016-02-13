@@ -22,7 +22,7 @@ int main() {
     start_io_dispatcher(sch);
 
     int i = 0;
-    for (; i < 4000; ++i) {
+    for (; i < 256; ++i) {
         fiber_t fiber;
 
         create_fiber(&fiber, consume_func, NULL);
@@ -41,20 +41,18 @@ int main() {
 
 void consume_func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 1024 * 8; ++i) {
+    for (; i < 128; ++i) {
         fiber_sem_wait(fiber, &sem);
         printf("consume: value is %d\n", __sync_sub_and_fetch(&g_value, 1));
         yield(fiber);
     }
-    printf("consume done\n");
 }
 
 void product_func(fiber_t fiber, void *data) {
     int i = 0;
-    for (; i < 1024 * 8; ++i) {
+    for (; i < 128; ++i) {
         fiber_sem_post(&sem);
         printf("product: value is %d\n", __sync_add_and_fetch(&g_value, 1));
         yield(fiber);
     }
-    printf("product done\n");
 }
