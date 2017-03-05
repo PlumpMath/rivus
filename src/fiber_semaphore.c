@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "fiber.h"
 
@@ -53,7 +54,7 @@ int fiber_sem_wait(fiber_t fiber, fiber_sem_t *f_sem) {
     (*f_sem)->wait_queue[index] = fiber;
 
     fiber->tc->running_queue.queue[fiber->tc->running_queue.tail] = NULL;
-    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+    switch_to_scheduler(fiber);
     return 0;
 }
 

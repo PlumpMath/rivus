@@ -10,9 +10,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ucontext.h>
 #include <ucontext.h>
+#include <unistd.h>
 
-
+#define REG_RSP 15
 #define RIVUS_NR_OPEN   1024*64
 
 
@@ -44,9 +46,11 @@ struct Scheduler* create_scheduler(int thread_nums) {
 
     int i = 0;
     for (; i < tnums; ++i) {
-        struct ThreadCarrier *tc = calloc(1, sizeof(struct ThreadCarrier));
+        struct ThreadCarrier *tc = calloc(sizeof(struct ThreadCarrier), 1);
         tc->running_queue.size = qsize;
         tc->running_queue.queue = calloc(qsize, sizeof(fiber_t));
+        tc->shared_stack = calloc(1, FIBER_STACK_SIZE);
+        tc->ctx.uc_stack.ss_sp = calloc(1, FIBER_STACK_SIZE);
         sem_init(&tc->running_queue.sem_used, 0, 0);
         sem_init(&tc->running_queue.sem_free, 0, qsize);
         sch->threads[i] = tc;
@@ -62,6 +66,8 @@ void free_scheduler(struct Scheduler *sch) {
         struct ThreadCarrier *tc = sch->threads[i];
         sem_destroy(&tc->running_queue.sem_free);
         sem_destroy(&tc->running_queue.sem_used);
+        free(tc->shared_stack);
+        free(tc->ctx.uc_stack.ss_sp);
         free(tc->running_queue.queue);
         free(tc);
     }
@@ -114,6 +120,29 @@ void stop_io_dispatcher(struct Scheduler *sch) {
     pthread_join(sch->dispatcher_tid, &status);
 }
 
+void switch_to_scheduler(fiber_t fiber) {
+    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+}
+
+void switch_to_fiber(fiber_t fiber) {
+    if (fiber->ctx.uc_stack.ss_sp != fiber->tc->ctx.uc_stack.ss_sp) {
+        char *stack_end = fiber->tc->shared_stack + FIBER_STACK_SIZE - fiber->ctx.uc_stack.ss_size;
+        memcpy(stack_end, fiber->ctx.uc_stack.ss_sp, fiber->ctx.uc_stack.ss_size);
+        free(fiber->ctx.uc_stack.ss_sp);
+        fiber->ctx.uc_stack.ss_sp = fiber->tc->shared_stack;
+        fiber->ctx.uc_stack.ss_size = FIBER_STACK_SIZE;
+    }
+
+    swapcontext(&fiber->tc->ctx, &fiber->ctx);
+
+    int stack_size = (uint64_t)fiber->ctx.uc_stack.ss_sp + FIBER_STACK_SIZE
+        - fiber->ctx.uc_mcontext.gregs[REG_RSP];
+    char *fiber_stack = calloc(1, stack_size);
+    memcpy(fiber_stack, (char*)fiber->ctx.uc_mcontext.gregs[REG_RSP], stack_size);
+    fiber->ctx.uc_stack.ss_sp = fiber_stack;
+    fiber->ctx.uc_stack.ss_size = stack_size;
+}
+
 int create_fiber(fiber_t *fiber, void (*user_func)(fiber_t, void*), void *data) {
     if (fiber == NULL) {
         return -1;
@@ -158,7 +187,7 @@ int yield(fiber_t fiber) {
     int index = (int)(__sync_fetch_and_add(&tc->running_queue.head, 1) & (tc->running_queue.size - 1));
     tc->running_queue.queue[index] = fiber;
     sem_post(&tc->running_queue.sem_used);
-    swapcontext(&fiber->ctx, &tc->ctx);
+    switch_to_scheduler(fiber);
     return 0;
 }
 
@@ -214,7 +243,7 @@ void fiber_entry(fiber_t fiber) {
             sem_post(&tc->done);
         }
     }
-    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+    switch_to_scheduler(fiber);
 }
 
 void* schedule_thread(void *data) {
@@ -232,21 +261,21 @@ void* schedule_thread(void *data) {
             switch (fiber->status) {
                 case READY:
                     getcontext(&fiber->ctx);
-                    fiber->ctx.uc_stack.ss_sp = fiber->stack;
+                    fiber->ctx.uc_stack.ss_sp = tc->shared_stack;
                     fiber->ctx.uc_stack.ss_size = FIBER_STACK_SIZE;
-                    makecontext(&fiber->ctx,
-                                (void(*)(void))fiber->entry, 1, fiber);
+                    makecontext(&fiber->ctx, (void(*)(void))fiber->entry, 1, fiber);
 
                 case RUNABLE:
                     fiber->status = RUNNING;
                     tc->running_fiber = fiber;
-                    swapcontext(&tc->ctx, &fiber->ctx);
+                    switch_to_fiber(fiber);
                     break;
 
                 default:
                     break;
             }
             if (fiber->status == DEAD) {
+                free(fiber->ctx.uc_stack.ss_sp);
                 free(fiber);
             }
         }

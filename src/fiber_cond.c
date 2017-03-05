@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <ucontext.h>
+#include <unistd.h>
 
 #include "fiber.h"
 
@@ -50,7 +51,7 @@ int fiber_cond_wait(fiber_t fiber, fiber_cond_t *f_cond, fiber_mutex_t *f_mtx) {
     /* release the mutex */
     fiber_mutex_unlock(fiber, f_mtx);
 
-    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+    switch_to_scheduler(fiber);
 
     /* after fiber be woke up, get the mutex first */
     fiber_mutex_lock(fiber, f_mtx);

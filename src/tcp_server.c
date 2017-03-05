@@ -1,5 +1,6 @@
 #include "tcp_server.h"
 
+#include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -7,6 +8,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/time.h>

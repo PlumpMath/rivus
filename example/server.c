@@ -30,9 +30,14 @@ int main() {
     const char *server_ip = "127.0.0.1";
 
     struct Scheduler *sch = create_scheduler(8);
-    if (sch == NULL) return 0;
+    if (sch == NULL) {
+        return 0;
+    }
+
     struct TcpServer *server = create_tcp_server(server_ip, 12400, data_processor);
-    if (server == NULL) return 0;
+    if (server == NULL) {
+        return 0;
+    }
 
     start_scheduler(sch);
     run_tcp_server(sch, server);

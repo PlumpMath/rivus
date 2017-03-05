@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -20,7 +21,7 @@ int main() {
     ts = time(&ts);
     pthread_t tid[THREAD_NUMS];
     for (; i < THREAD_NUMS; ++i) {
-        if (pthread_create(&tid[i], NULL, func, (void*)i) == 0) {
+        if (pthread_create(&tid[i], NULL, func, NULL) == 0) {
             ++cfd;
         }
     }
@@ -32,11 +33,11 @@ int main() {
     }
     te = time(&te);
     printf("all done!!!\n");
-    printf("spend time: %d seconds\n", te - ts);
+    printf("spend time: %d seconds\n", (int)(te - ts));
     return 0;
 }
 
-void* func(int index) {
+void* func() {
     const char *server_ip = "127.0.0.1";
     const int server_port = 12400;
     struct sockaddr_in server_address;

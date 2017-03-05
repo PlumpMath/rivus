@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <ucontext.h>
+#include <unistd.h>
 
 #include "fiber.h"
 
@@ -63,7 +64,7 @@ int fiber_rwlock_rdlock(fiber_t fiber, fiber_rwlock_t *f_rwlock) {
     (*f_rwlock)->wait_queue[index].fiber = fiber;
 
     fiber->tc->running_queue.queue[fiber->tc->running_queue.tail] = NULL;
-    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+    switch_to_scheduler(fiber);
     return 0;
 }
 
@@ -98,7 +99,7 @@ int fiber_rwlock_wrlock(fiber_t fiber, fiber_rwlock_t *f_rwlock) {
     }
 
     fiber->tc->running_queue.queue[fiber->tc->running_queue.tail] = NULL;
-    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+    switch_to_scheduler(fiber);
     return 0;
 }
 

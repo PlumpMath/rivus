@@ -6,7 +6,7 @@
 #include <ucontext.h>
 
 
-#define FIBER_STACK_SIZE    4096*32
+#define FIBER_STACK_SIZE    4096*256
 #define MAX_EVENT_SIZE  1024*64
 
 
@@ -37,7 +37,7 @@ struct Fiber {
     void (*user_func)(struct Fiber*, void*);
     void *user_data;
     int status;
-    char stack[FIBER_STACK_SIZE];
+    char *stack;
     ucontext_t ctx;
     struct ThreadCarrier *tc;
 };
@@ -58,6 +58,7 @@ struct ThreadCarrier {
     struct Fiber *running_fiber;
     struct FiberQueue running_queue;
     struct Scheduler *sch;
+    char *shared_stack;
     ucontext_t ctx;
 };
 

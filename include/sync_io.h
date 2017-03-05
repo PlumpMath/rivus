@@ -22,7 +22,7 @@ ssize_t rivus_send(fiber_t fiber, int sockfd, const char *buf, size_t len, int f
 ssize_t rivus_recv(fiber_t fiber, int sockfd, char *buf, size_t len, int flags);
 
 ssize_t rivus_sendto(fiber_t fiber, int sockfd, const char *buf, size_t len, int flags,
-                     struct sockaddr *dest_addr, socklen_t *addrlen);
+                     struct sockaddr *dest_addr, socklen_t addrlen);
 ssize_t rivus_recvfrom(fiber_t fiber, int sockfd, char *buf, size_t len, int flags,
                        struct sockaddr *src_addr, socklen_t *addrlen);
 

@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/epoll.h>
+#include <unistd.h>
 
 #include "fiber.h"
 
@@ -33,7 +34,7 @@ ssize_t rivus_write(fiber_t fiber, int fd, const char *buf, size_t nbyte) {
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
                 return -1;
             }
-            swapcontext(&fiber->ctx, &fiber->tc->ctx);
+            switch_to_scheduler(fiber);
         } else {
             return -1;
         }
@@ -57,7 +58,7 @@ ssize_t rivus_read(fiber_t fiber, int fd, char *buf, size_t nbyte) {
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
                 return -1;
             }
-            swapcontext(&fiber->ctx, &fiber->tc->ctx);
+            switch_to_scheduler(fiber);
         } else {
             return -1;
         }
@@ -108,7 +109,7 @@ ssize_t rivus_send(fiber_t fiber, int fd, const char *buf, size_t len, int flags
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
                 return -1;
             }
-            swapcontext(&fiber->ctx, &fiber->tc->ctx);
+            switch_to_scheduler(fiber);
         } else {
             return -1;
         }
@@ -131,7 +132,7 @@ ssize_t rivus_recv(fiber_t fiber, int fd, char *buf, size_t len, int flags) {
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
                 return -1;
             }
-            swapcontext(&fiber->ctx, &fiber->tc->ctx);
+            switch_to_scheduler(fiber);
         } else {
             return -1;
         }
@@ -139,7 +140,7 @@ ssize_t rivus_recv(fiber_t fiber, int fd, char *buf, size_t len, int flags) {
 }
 
 ssize_t rivus_sendto(fiber_t fiber, int sockfd, const char *buf, size_t len, int flags,
-                     struct sockaddr *dest_addr, socklen_t *addrlen) {
+                     struct sockaddr *dest_addr, socklen_t addrlen) {
     while (1) {
         int send_byte = sendto(sockfd, buf, len, flags, dest_addr, addrlen);
         if (send_byte >= 0) {
@@ -155,7 +156,7 @@ ssize_t rivus_sendto(fiber_t fiber, int sockfd, const char *buf, size_t len, int
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sockfd, &ev) < 0) {
                 return -1;
             }
-            swapcontext(&fiber->ctx, &fiber->tc->ctx);
+            switch_to_scheduler(fiber);
         } else {
             return -1;
         }
@@ -179,7 +180,7 @@ ssize_t rivus_recvfrom(fiber_t fiber, int sockfd, char *buf, size_t len, int fla
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sockfd, &ev) < 0) {
                 return -1;
             }
-            swapcontext(&fiber->ctx, &fiber->tc->ctx);
+            switch_to_scheduler(fiber);
         } else {
             return -1;
         }

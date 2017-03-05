@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <ucontext.h>
+#include <unistd.h>
 
 #include "fiber.h"
 
@@ -56,7 +57,7 @@ int fiber_mutex_lock(fiber_t fiber, fiber_mutex_t *f_mtx) {
     (*f_mtx)->wait_queue[index] = fiber;
 
     fiber->tc->running_queue.queue[fiber->tc->running_queue.tail] = NULL;
-    swapcontext(&fiber->ctx, &fiber->tc->ctx);
+    switch_to_scheduler(fiber);
     return 0;
 }
 
