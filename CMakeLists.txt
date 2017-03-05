@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.5)
 PROJECT(RIVUS)
 
 SET(EXECUTABLE_OUTPUT_PATH build/)
+SET(LIBRARY_OUTPUT_PATH libs/)
 
 INCLUDE_DIRECTORIES(include)
 
